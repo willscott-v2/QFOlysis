@@ -3,9 +3,11 @@ import { z } from 'zod';
 // Import entity and query types
 export interface ExtractedEntity {
   entity: string;
-  type: 'service' | 'industry' | 'technology' | 'location' | 'organization' | 'concept';
+  type: 'service' | 'industry' | 'technology' | 'location' | 'organization' | 'concept' | 'product' | 'person';
   confidence: number;
+  relevance: number;
   context?: string;
+  sources?: string[];
 }
 
 export interface FanOutQuery {
@@ -13,6 +15,22 @@ export interface FanOutQuery {
   intent: 'informational' | 'navigational' | 'transactional' | 'comparison';
   priority: 'high' | 'medium' | 'low';
   category: string;
+}
+
+export interface QueryFanOut {
+  question: string;
+  coverage: 'Yes' | 'No' | 'Partial';
+  coverageDetails?: string;
+  intent: 'informational' | 'transactional' | 'comparison';
+  priority: 'high' | 'medium' | 'low';
+  category: string;
+}
+
+export interface OptimizationRecommendation {
+  category: string;
+  recommendation: string;
+  priority: 'high' | 'medium' | 'low';
+  impact: string;
 }
 
 // ============================================================================
@@ -107,6 +125,15 @@ export interface AnalysisResult {
     targetAudience: string[];
     businessType: string;
   };
+  extractedEntities?: ExtractedEntity[];
+  queryFanOut: QueryFanOut[];
+  optimizationRecommendations: OptimizationRecommendation[];
+  coverageScore: number; // 0-100 percentage
+  apiUsage?: {
+    openaiTokens: number;
+    serpapiRequests: number;
+    estimatedCost: number;
+  };
 }
 
 export interface RadarChartData {
@@ -161,7 +188,7 @@ export interface AnalysisFormProps {
 
 export interface ResultsDisplayProps {
   result: AnalysisResult;
-  onExport?: (format: 'csv' | 'json') => void;
+  onExport?: (format: 'csv' | 'json' | 'markdown') => void;
   onNewAnalysis?: () => void;
 }
 

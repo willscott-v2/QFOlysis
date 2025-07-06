@@ -95,6 +95,7 @@ function extractFallbackEntities(content: string, title: string): ExtractedEntit
         entity: service,
         type: 'service',
         confidence: 75,
+        relevance: 7,
         context: 'extracted from content patterns'
       });
     }
@@ -110,6 +111,7 @@ function extractFallbackEntities(content: string, title: string): ExtractedEntit
         entity: org,
         type: 'organization',
         confidence: 70,
+        relevance: 6,
         context: 'extracted from capitalization patterns'
       });
     }
@@ -134,6 +136,7 @@ function parseEntitiesFromText(text: string): ExtractedEntity[] {
             entity: match[1],
             type: typeMatch[1] as any,
             confidence: 80,
+            relevance: 8,
             context: 'parsed from text response'
           });
         }

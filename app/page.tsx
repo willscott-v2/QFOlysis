@@ -45,6 +45,9 @@ export default function HomePage() {
   }, [darkMode]);
 
   const handleAnalysisSubmit = async (data: AnalyzeRequest) => {
+    console.log('🚀 ANALYSIS STARTING - Form submitted with:', data); // ← ADD THIS LINE
+
+  
     setAnalyzing(true);
     setError(null);
     setShowResults(false);
@@ -88,6 +91,9 @@ export default function HomePage() {
         },
         body: JSON.stringify(data),
       });
+      
+          console.log('📡 Response received:', response.status, response.ok); // ← ADD THIS LINE
+
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -95,6 +101,10 @@ export default function HomePage() {
       }
 
       const result = await response.json();
+console.log('✅ Parsed result:', result);
+console.log('🎯 extractedEntities:', result.data?.extractedEntities); // ← ADD THIS
+console.log('🔍 queryFanOut:', result.data?.queryFanOut);             // ← ADD THIS
+console.log('💡 optimizationRecommendations:', result.data?.optimizationRecommendations); // ← ADD THIS
       
       if (!result.success) {
         throw new Error(result.error || 'Analysis failed');
@@ -135,10 +145,12 @@ export default function HomePage() {
     resetProgress();
   };
 
-  const handleExport = async (format: 'csv' | 'json') => {
+  const handleExport = async (format: 'csv' | 'json' | 'markdown') => {
     if (!currentAnalysis) return;
 
     try {
+        console.log('📡 About to make fetch request to /api/analyze'); // ← ADD THIS LINE
+
       const response = await fetch('/api/export', {
         method: 'POST',
         headers: {

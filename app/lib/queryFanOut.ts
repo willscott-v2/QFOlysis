@@ -1,182 +1,200 @@
-export interface FanOutQuery {
-  question: string;
-  intent: 'informational' | 'navigational' | 'transactional' | 'comparison';
-  priority: 'high' | 'medium' | 'low';
-  category: string;
-}
+import { QueryFanOut, ExtractedEntity } from './types';
 
-export async function generateQueryFanOut(
-  businessEntities: {
-    services: string[];
-    industries: string[];
-    technologies: string[];
-    targetAudience: string[];
-    businessType: string;
-  },
+export async function generateQueryFanOutWithCoverage(
+  entities: ExtractedEntity[],
   content: string,
   title: string
-): Promise<FanOutQuery[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
+): Promise<QueryFanOut[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
   
   if (!apiKey) {
-    throw new Error('Gemini API key required for query fan-out');
+    throw new Error('OpenAI API key not configured');
   }
 
-  const prompt = `Based on this business profile, generate questions that potential customers would ask when researching these services. Think like Google's "People also ask" and AI Overview question expansion.
+  const entityList = entities.map(e => e.entity).join(', ');
 
-Business Profile:
-- Services: ${businessEntities.services.join(', ')}
-- Industries: ${businessEntities.industries.join(', ')}
-- Technologies: ${businessEntities.technologies.join(', ')}
-- Target Audience: ${businessEntities.targetAudience.join(', ')}
-- Business Type: ${businessEntities.businessType}
+  const prompt = `Generate questions potential customers would ask about this business, then analyze if the content covers each question.
 
-Generate 15-20 questions across these categories:
+Business Entities: ${entityList}
+Content: ${content.slice(0, 3000)}
 
-WHAT questions (definitions, explanations):
-- "What is [service] and how does it work?"
-- "What makes a good [service] provider?"
-
-HOW questions (processes, methods):
-- "How to choose [service] for [industry]?"
+Generate 10-15 questions across these patterns:
+- "What is [entity]?" 
+- "How does [entity] work?"
+- "What services does [company] offer for [industry]?"
 - "How much does [service] cost?"
+- "How does [company] compare to competitors?"
+- "What is [company]'s process for [service]?"
 
-WHY questions (benefits, reasons):
-- "Why do [target audience] need [service]?"
-- "Why use [technology] for [service]?"
+For each question, analyze the content and determine:
+- Coverage: "Yes" (clearly answered), "No" (not addressed), "Partial" (mentioned but incomplete)
+- Coverage details: Brief explanation of what's covered or missing
 
-COMPARISON questions:
-- "Best [service] companies for [industry]"
-- "[Service] vs [alternative service]"
-
-PROCESS questions:
-- "How to get started with [service]"
-- "What to expect from [service] process"
-
-Return JSON array:
-[
-  {
-    "question": "What is SEO and how does it work for healthcare companies?",
-    "intent": "informational",
-    "priority": "high",
-    "category": "Service Definition"
-  },
-  {
-    "question": "How much does digital marketing cost for small businesses?",
-    "intent": "transactional", 
-    "priority": "high",
-    "category": "Pricing"
-  }
-]
-
-Focus on questions that potential customers would actually search for when evaluating these services.`;
+    Return ONLY a JSON array (no markdown, no code blocks, just pure JSON):
+    [
+      {
+        "question": "What is Search Influence?",
+        "coverage": "Yes", 
+        "coverageDetails": "Company is clearly described as a higher education digital marketing agency",
+        "intent": "informational",
+        "priority": "high",
+        "category": "Company Definition"
+      },
+      {
+        "question": "How much does Search Influence charge for its services?",
+        "coverage": "Partial",
+        "coverageDetails": "mentions pricing transparency but lacks specifics", 
+        "intent": "transactional",
+        "priority": "high", 
+        "category": "Pricing"
+      }
+    ]`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1500,
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an SEO expert analyzing content coverage. Generate questions customers would ask and determine if the content answers them.'
           },
-        }),
-      }
-    );
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 1500,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
 
     const data = await response.json();
-    const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const result = data.choices[0]?.message?.content?.trim();
     
-    if (result) {
-      try {
-        const cleanJson = result.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        const queries = JSON.parse(cleanJson);
-        
-        return queries.filter((q: any) => 
-          q.question && 
-          q.intent && 
-          q.priority && 
-          q.category
-        );
-      } catch (parseError) {
-        console.error('Failed to parse query fan-out JSON:', parseError);
-        return [];
-      }
+    if (!result) {
+      return [];
     }
-    
-    return [];
+
+    try {
+      // Clean the result to handle markdown code blocks
+      const cleanResult = result
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      
+      const queries = JSON.parse(cleanResult);
+      return Array.isArray(queries) ? queries.filter(q => 
+        q.question && q.coverage && q.intent && q.priority && q.category
+      ) : [];
+    } catch (parseError) {
+      console.warn('Failed to parse query fan-out as JSON:', parseError);
+      console.log('Raw result:', result);
+      return [];
+    }
   } catch (error) {
     console.error('Query fan-out generation failed:', error);
     return [];
   }
 }
 
-function parseQueriesFromText(text: string): FanOutQuery[] {
-  const queries: FanOutQuery[] = [];
-  const lines = text.split('\n');
+export function calculateCoverageScore(fanOutQueries: QueryFanOut[]): number {
+  if (fanOutQueries.length === 0) return 0;
   
-  for (const line of lines) {
-    if (line.includes('"question"')) {
-      try {
-        const questionMatch = line.match(/"question":\s*"([^"]+)"/);
-        const intentMatch = line.match(/"intent":\s*"([^"]+)"/);
-        const priorityMatch = line.match(/"priority":\s*"([^"]+)"/);
-        const categoryMatch = line.match(/"category":\s*"([^"]+)"/);
-        
-        if (questionMatch && intentMatch && priorityMatch && categoryMatch) {
-          queries.push({
-            question: questionMatch[1],
-            intent: intentMatch[1] as any,
-            priority: priorityMatch[1] as any,
-            category: categoryMatch[1] as any
-          });
-        }
-      } catch {
-        // Skip malformed lines
-      }
+  const scores = fanOutQueries.map(q => {
+    switch (q.coverage) {
+      case 'Yes': return 1;
+      case 'Partial': return 0.5;
+      case 'No': return 0;
+      default: return 0;
     }
+  });
+  
+  const totalScore = scores.reduce((sum: number, score: number) => sum + score, 0);
+  return Math.round((totalScore / fanOutQueries.length) * 100);
+}
+
+export async function generateSearchQueries(
+  entities: ExtractedEntity[],
+  originalUrl: string
+): Promise<string[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('OpenAI API key not configured');
   }
-  
-  return queries;
-}
 
-export function analyzeQueryCoverage(
-  targetContent: string,
-  competitorContents: string[],
-  queries: FanOutQuery[]
-): { query: string; targetCoverage: number; competitorCoverage: number; gap: number }[] {
-  return queries.map(query => {
-    // Simple keyword-based coverage analysis
-    const targetCoverage = calculateCoverageScore(targetContent, query.question);
-    const competitorCoverage = Math.max(
-      ...competitorContents.map(content => calculateCoverageScore(content, query.question))
-    );
+  try {
+    const topEntities = entities
+      .sort((a, b) => (b.relevance * b.confidence) - (a.relevance * a.confidence))
+      .slice(0, 10)
+      .map(e => `${e.entity} (${e.type})`)
+      .join(', ');
+
+    const prompt = `Generate 8-12 SEO-focused search queries based on these entities: ${topEntities}
     
-    return {
-      query: query.question,
-      targetCoverage,
-      competitorCoverage,
-      gap: competitorCoverage - targetCoverage
-    };
-  });
-}
+    Original URL: ${originalUrl}
+    
+    Create queries that would help find:
+    - Competitor analysis opportunities
+    - Content gaps to fill
+    - Keyword opportunities
+    - Related topics to cover
+    
+    Return ONLY a JSON array of strings:
+    ["query 1", "query 2", "query 3", ...]`;
 
-function calculateCoverageScore(content: string, query: string): number {
-  // Simple keyword matching for coverage calculation
-  const queryWords = query.toLowerCase().split(/\s+/).filter(word => word.length > 3);
-  const contentLower = content.toLowerCase();
-  
-  let matches = 0;
-  queryWords.forEach(word => {
-    if (contentLower.includes(word)) {
-      matches++;
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an SEO expert. Generate search queries that would help with competitive analysis and content optimization.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 400,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
     }
-  });
-  
-  return Math.round((matches / queryWords.length) * 100);
+
+    const data = await response.json();
+    const result = data.choices[0]?.message?.content?.trim();
+
+    if (!result) {
+      return [];
+    }
+
+    try {
+      const queries = JSON.parse(result);
+      return Array.isArray(queries) ? queries.filter(q => typeof q === 'string') : [];
+    } catch {
+      return [];
+    }
+  } catch (error) {
+    console.error('Query generation error:', error);
+    return [];
+  }
 } 

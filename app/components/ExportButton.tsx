@@ -15,14 +15,14 @@ import { type AnalysisResult } from '@/app/lib/types';
 
 interface ExportButtonProps {
   analysisResult: AnalysisResult;
-  onExport?: (format: 'csv' | 'json' | 'txt') => void;
+  onExport?: (format: 'csv' | 'json' | 'markdown') => void;
 }
 
 export function ExportButton({ analysisResult, onExport }: ExportButtonProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const handleExport = async (format: 'csv' | 'json' | 'txt') => {
+  const handleExport = async (format: 'csv' | 'json' | 'markdown') => {
     setIsExporting(true);
     setShowDropdown(false);
 
@@ -91,7 +91,7 @@ export function ExportButton({ analysisResult, onExport }: ExportButtonProps) {
       color: 'text-blue-600',
     },
     {
-      format: 'txt' as const,
+      format: 'markdown' as const,
       label: 'Markdown',
       description: 'Report format',
       icon: FileText,

@@ -49,19 +49,18 @@ export function ResultsDisplay({
   const scoreDifference = targetScore - avgCompetitorScore;
   const isOutperforming = scoreDifference > 0;
 
-  const handleExport = (format: 'csv' | 'json' | 'txt') => {
+  const handleExport = (format: 'csv' | 'json' | 'markdown') => {
     if (onExport) {
-      if (format === 'csv' || format === 'json') {
-        onExport(format);
-      } else {
-        // Optionally, show a message or do nothing
-        // alert('TXT export not implemented');
-      }
+      onExport(format);
     }
   };
 
   return (
     <div className="space-y-6">
+
+
+    
+    
       {/* Header Section */}
       <Card>
         <CardHeader>
@@ -180,6 +179,61 @@ export function ResultsDisplay({
         height={400}
       />
 
+      {/* Extracted Entities Section */}
+      {result.extractedEntities && result.extractedEntities.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>🎯 Extracted Entities</CardTitle>
+            <CardDescription>
+              Business entities identified from your content
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {result.extractedEntities.map((entity, index) => (
+                <div key={index} className="flex items-center justify-between p-3 border rounded">
+                  <div>
+                    <span className="font-medium">{entity.entity}</span>
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      {entity.type}
+                    </Badge>
+                  </div>
+                  <Badge className="bg-green-100 text-green-800">
+                    {Math.round(entity.confidence * 100)}%
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Discovered Keywords Section */}
+      {result.queries && result.queries.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>🔍 Discovered Keywords</CardTitle>
+            <CardDescription>
+              SEO keywords and search terms extracted from your content
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {result.queries.slice(0, 30).map((keyword, index) => (
+                <Badge key={index} variant="secondary" className="text-sm">
+                  {keyword}
+                </Badge>
+              ))}
+              {result.queries.length > 30 && (
+                <Badge variant="outline" className="text-sm">
+                  +{result.queries.length - 30} more
+                </Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Coverage Gaps */}
       {coverageGaps.length > 0 && (
         <CoverageGaps gaps={coverageGaps} />
@@ -247,40 +301,180 @@ export function ResultsDisplay({
 
       {/* Query Fan-Out Analysis Section */}
       {result.fanOutQueries && result.fanOutQueries.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <Search className="h-5 w-5 mr-2 text-blue-600" />
-            Query Fan-Out Analysis
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Questions potential customers might ask when researching your services:
-          </p>
-          <div className="grid gap-3">
-            {result.fanOutQueries.map((query, index) => (
-              <div key={index} className="border rounded p-3 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <div className="flex items-start justify-between">
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {query.question}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Search className="h-5 w-5 mr-2 text-blue-600" />
+              Query Fan-Out Analysis
+            </CardTitle>
+            <CardDescription>
+              Questions potential customers might ask when researching your services
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {result.fanOutQueries.map((query, index) => (
+                <div key={index} className="border rounded p-3 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <div className="flex items-start justify-between">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {query.question}
+                    </p>
+                    <div className="flex items-center space-x-2 ml-4">
+                      <Badge 
+                        variant={query.priority === 'high' ? 'default' : 'secondary'}
+                        className="text-xs"
+                      >
+                        {query.priority}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {query.intent}
+                      </Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {query.category}
                   </p>
-                  <div className="flex items-center space-x-2 ml-4">
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Query Fan-Out Analysis */}
+      {result.queryFanOut && result.queryFanOut.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>🔍 Query Fan-Out Analysis</CardTitle>
+            <CardDescription>
+              Questions potential customers might ask and how well your content covers them
+            </CardDescription>
+            <div className="text-right">
+              <Badge className="text-lg px-3 py-1">
+                {result.coverageScore}% Coverage
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {result.queryFanOut.map((query, index) => (
+                <div key={index} className="border rounded p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="font-medium text-sm">{query.question}</p>
                     <Badge 
-                      variant={query.priority === 'high' ? 'default' : 'secondary'}
+                      variant={
+                        query.coverage === 'Yes' ? 'default' : 
+                        query.coverage === 'Partial' ? 'secondary' : 'destructive'
+                      }
+                      className="ml-2"
+                    >
+                      {query.coverage}
+                    </Badge>
+                  </div>
+                  {query.coverageDetails && (
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      {query.coverageDetails}
+                    </p>
+                  )}
+                  <div className="flex items-center space-x-2 mt-2">
+                    <Badge variant="outline" className="text-xs">{query.category}</Badge>
+                    <Badge variant="outline" className="text-xs">{query.priority}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Optimization Recommendations */}
+      {result.optimizationRecommendations && result.optimizationRecommendations.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>💡 Optimization Recommendations</CardTitle>
+            <CardDescription>
+              Specific actions to improve your content coverage and performance
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {result.optimizationRecommendations.map((rec, index) => (
+                <div key={index} className="border-l-4 border-blue-500 pl-4 py-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium">{rec.recommendation}</h4>
+                    <Badge variant="outline">{rec.category}</Badge>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    {rec.impact}
+                  </p>
+                  <div className="flex items-center space-x-2 mt-2">
+                    <Badge 
+                      variant={
+                        rec.priority === 'high' ? 'destructive' : 
+                        rec.priority === 'medium' ? 'default' : 'secondary'
+                      }
                       className="text-xs"
                     >
-                      {query.priority}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      {query.intent}
+                      {rec.priority} priority
                     </Badge>
                   </div>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {query.category}
-                </p>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* API Usage Stats */}
+      {result.apiUsage && (
+        <Card className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Clock className="h-5 w-5 mr-2 text-gray-600" />
+              API Usage & Cost Analysis
+            </CardTitle>
+            <CardDescription>
+              Estimated API usage and costs for this analysis
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                <div className="text-2xl font-bold text-blue-600 mb-1">
+                  {result.apiUsage.openaiTokens.toLocaleString()}
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  OpenAI Tokens
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
+              
+              <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                <div className="text-2xl font-bold text-green-600 mb-1">
+                  {result.apiUsage.serpapiRequests}
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  SerpAPI Requests
+                </div>
+              </div>
+              
+              <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                <div className="text-2xl font-bold text-purple-600 mb-1">
+                  ${result.apiUsage.estimatedCost}
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Estimated Cost
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-xs text-blue-800 dark:text-blue-200">
+                💡 <strong>Cost Breakdown:</strong> OpenAI GPT-4o-mini tokens (~${(result.apiUsage.openaiTokens * 0.00015 / 1000).toFixed(4)}) + 
+                SerpAPI search requests (~${(result.apiUsage.serpapiRequests * 0.01).toFixed(2)})
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Detailed Analysis Link */}
@@ -296,7 +490,11 @@ export function ResultsDisplay({
               </p>
             </div>
             
-            <Button variant="outline" className="flex items-center">
+            <Button 
+              variant="outline" 
+              className="flex items-center"
+              onClick={() => handleExport('markdown')}
+            >
               <Download className="h-4 w-4 mr-2" />
               Export Data
             </Button>

@@ -421,6 +421,9 @@ export async function performContentAnalysis(
       queries: allQueries,
       timestamp: new Date().toISOString(),
       processingTime,
+      queryFanOut: [],
+      optimizationRecommendations: [],
+      coverageScore: 0,
     };
   } catch (error) {
     console.error('Error performing content analysis:', error);
