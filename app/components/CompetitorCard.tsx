@@ -152,17 +152,28 @@ export function CompetitorCard({
               {topQueries.slice(0, 3).map((query, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between text-xs p-2 bg-gray-50 dark:bg-gray-800 rounded"
+                  className="flex flex-col text-xs p-2 bg-gray-50 dark:bg-gray-800 rounded mb-1"
                 >
-                  <span className="truncate text-gray-700 dark:text-gray-300">
-                    {query.query}
-                  </span>
-                  <Badge 
-                    variant="secondary" 
-                    className="ml-2 text-xs"
-                  >
-                    {Math.round(query.similarity * 100)}%
-                  </Badge>
+                  <div className="flex items-center justify-between">
+                    <span className="truncate text-gray-700 dark:text-gray-300">
+                      {query.query}
+                    </span>
+                    <Badge 
+                      variant="secondary" 
+                      className="ml-2 text-xs"
+                    >
+                      {Math.round(query.similarity * 100)}%
+                    </Badge>
+                  </div>
+                  {/* Chunk-level salience info */}
+                  {typeof query.bestChunkIndex === 'number' && query.bestChunkIndex >= 0 && (
+                    <div className="text-gray-400 mt-1 flex items-center gap-2">
+                      <span>Chunk #{query.bestChunkIndex + 1}</span>
+                      {query.context && (
+                        <span className="italic truncate max-w-xs">{query.context.slice(0, 60)}...</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               

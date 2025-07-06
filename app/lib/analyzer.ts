@@ -10,6 +10,7 @@ import {
   type SimilarityResult,
   AnalysisError,
 } from './types';
+import { TopicDetector, extractPrimaryTopicSafely } from './topic-detector';
 
 // ============================================================================
 // OpenAI Client Setup
@@ -122,7 +123,45 @@ export async function generateQueries(
 }
 
 /**
- * Analyze content similarity between target and queries
+ * Chunk content into logical sections for better similarity analysis
+ */
+function chunkContent(content: string, maxChunkSize: number = 1000): string[] {
+  const chunks: string[] = [];
+  
+  // Split by paragraphs first
+  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+  
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= maxChunkSize) {
+      chunks.push(paragraph.trim());
+    } else {
+      // Split long paragraphs by sentences
+      const sentences = paragraph.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      let currentChunk = '';
+      
+      for (const sentence of sentences) {
+        if ((currentChunk + sentence).length <= maxChunkSize) {
+          currentChunk += (currentChunk ? '. ' : '') + sentence;
+        } else {
+          if (currentChunk) {
+            chunks.push(currentChunk.trim());
+          }
+          currentChunk = sentence;
+        }
+      }
+      
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+      }
+    }
+  }
+  
+  // Filter out very short chunks
+  return chunks.filter(chunk => chunk.length > 50);
+}
+
+/**
+ * Analyze content similarity between target and queries using chunked approach
  */
 export async function analyzeContentSimilarity(
   targetContent: string,
@@ -130,8 +169,26 @@ export async function analyzeContentSimilarity(
   threshold: number = 0.7
 ): Promise<QueryMatch[]> {
   try {
-    // Generate embedding for target content
-    const targetEmbedding = await generateEmbedding(targetContent);
+    // Chunk the target content
+    const contentChunks = chunkContent(targetContent);
+    console.log(`[Chunked Analysis] Split content into ${contentChunks.length} chunks`);
+    
+    // Generate embeddings for all chunks
+    const chunkEmbeddings = await Promise.all(
+      contentChunks.map(async (chunk, index) => {
+        try {
+          const embedding = await generateEmbedding(chunk);
+          return { chunk, embedding, index };
+        } catch (error) {
+          console.error(`Error generating embedding for chunk ${index}:`, error);
+          return null;
+        }
+      })
+    );
+    
+    // Filter out failed embeddings
+    const validChunkEmbeddings = chunkEmbeddings.filter(item => item !== null);
+    console.log(`[Chunked Analysis] Generated embeddings for ${validChunkEmbeddings.length} chunks`);
 
     const results: QueryMatch[] = [];
 
@@ -143,14 +200,34 @@ export async function analyzeContentSimilarity(
       const batchPromises = batch.map(async (query) => {
         try {
           const queryEmbedding = await generateEmbedding(query);
-          const similarity = cosineSimilarity(targetEmbedding, queryEmbedding);
+          
+          // Compare query to all chunks and find the best match
+          let bestSimilarity = 0;
+          let bestChunk = '';
+          let bestChunkIndex = -1;
+          
+          for (const chunkData of validChunkEmbeddings) {
+            if (!chunkData) continue;
+            
+            const similarity = cosineSimilarity(queryEmbedding, chunkData.embedding);
+            if (similarity > bestSimilarity) {
+              bestSimilarity = similarity;
+              bestChunk = chunkData.chunk;
+              bestChunkIndex = chunkData.index;
+            }
+          }
           
           return {
             query,
-            similarity,
+            similarity: bestSimilarity,
             category: categorizeQuery(query),
-            matched: similarity >= threshold,
-            context: extractRelevantContext(targetContent, query),
+            matched: bestSimilarity >= threshold,
+            context: bestChunk.slice(0, 200), // Use the best matching chunk as context
+            bestChunkIndex,
+            allChunkSimilarities: validChunkEmbeddings.map((chunkData, idx) => ({
+              chunkIndex: chunkData?.index || idx,
+              similarity: chunkData ? cosineSimilarity(queryEmbedding, chunkData.embedding) : 0
+            })).sort((a, b) => b.similarity - a.similarity).slice(0, 3) // Top 3 chunk matches
           };
         } catch (error) {
           console.error(`Error processing query "${query}":`, error);
@@ -159,6 +236,9 @@ export async function analyzeContentSimilarity(
             similarity: 0,
             category: 'general',
             matched: false,
+            context: '',
+            bestChunkIndex: -1,
+            allChunkSimilarities: []
           };
         }
       });
@@ -172,6 +252,7 @@ export async function analyzeContentSimilarity(
       }
     }
 
+    console.log(`[Chunked Analysis] Completed similarity analysis for ${results.length} queries`);
     return results.sort((a, b) => b.similarity - a.similarity);
   } catch (error) {
     console.error('Error analyzing content similarity:', error);
@@ -206,22 +287,6 @@ function categorizeQuery(query: string): string {
   }
 
   return 'General';
-}
-
-/**
- * Extract relevant context from content for a given query
- */
-function extractRelevantContext(content: string, query: string): string {
-  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const queryWords = query.toLowerCase().split(/\s+/);
-  
-  // Find sentences that contain query words
-  const relevantSentences = sentences.filter(sentence => {
-    const lowerSentence = sentence.toLowerCase();
-    return queryWords.some(word => lowerSentence.includes(word));
-  });
-
-  return relevantSentences.slice(0, 2).join('. ').slice(0, 200);
 }
 
 /**
@@ -288,9 +353,13 @@ export function generateRadarData(
 export function identifyCoverageGaps(
   targetScores: CategoryScore[],
   competitorResults: CompetitorResult[],
-  queryMatches: QueryMatch[]
+  queryMatches: QueryMatch[],
+  primaryTopic?: any
 ): CoverageGap[] {
   const gaps: CoverageGap[] = [];
+
+  const primaryEntity = primaryTopic?.entity?.toLowerCase() || '';
+  const subEntities = (primaryTopic?.subEntities || []).map((e: string) => e.toLowerCase());
 
   for (const targetCategory of targetScores) {
     const competitorAvg = competitorResults.reduce((sum, competitor) => {
@@ -314,12 +383,25 @@ export function identifyCoverageGaps(
       const priority = targetCategory.score < competitorAvg - 30 ? 'high' as const :
                       targetCategory.score < competitorAvg - 20 ? 'medium' as const : 'low' as const;
 
+      // Calculate topic relevance
+      let topicRelevance = 0;
+      const cat = targetCategory.category.toLowerCase();
+      if (primaryEntity && cat.includes(primaryEntity)) topicRelevance += 0.5;
+      subEntities.forEach((sub: string) => { if (cat.includes(sub)) topicRelevance += 0.2; });
+      missingQueries.forEach(q => {
+        const ql = q.toLowerCase();
+        if (primaryEntity && ql.includes(primaryEntity)) topicRelevance += 0.1;
+        subEntities.forEach((sub: string) => { if (ql.includes(sub)) topicRelevance += 0.05; });
+      });
+      topicRelevance = Math.min(1, topicRelevance);
+
       gaps.push({
         category: targetCategory.category,
         missingQueries,
         competitorUrls,
         priority,
         recommendation: generateRecommendation(targetCategory.category, missingQueries),
+        topicRelevance,
       });
     }
   }
@@ -364,12 +446,49 @@ export async function performContentAnalysis(
   const startTime = Date.now();
   
   try {
+    // Extract primary topic from target content
+    let primaryTopic;
+    try {
+      if ('contentElements' in targetContent) {
+        // Use the new structured content elements
+        const contentElementsWithEntities = {
+          ...(targetContent as any).contentElements,
+          extractedEntities: (targetContent as any).extractedEntities || []
+        };
+        primaryTopic = await extractPrimaryTopicSafely(contentElementsWithEntities);
+      } else {
+        // Fallback for old format
+        const contentElements = {
+          title: targetContent.title,
+          metaDescription: targetContent.metadata?.description,
+          headings: [],
+          url: targetContent.url,
+          bodyText: targetContent.content,
+          extractedEntities: (targetContent as any).extractedEntities || []
+        };
+        primaryTopic = await extractPrimaryTopicSafely(contentElements);
+      }
+    } catch (error) {
+      console.warn('Primary topic detection failed:', error);
+      // Create fallback primary topic
+      primaryTopic = {
+        entity: targetContent.title.split(' ').slice(0, 3).join(' '),
+        confidence: 0.3,
+        entityType: 'Concept' as const,
+        source: 'title' as const,
+        subEntities: []
+      };
+    }
+
     // Generate queries if not provided
     let allQueries = [...customQueries];
     if (allQueries.length < 10) {
       const generatedQueries = await generateQueries(targetContent.content, 20 - allQueries.length);
       allQueries = [...allQueries, ...generatedQueries];
     }
+
+    // Filter queries based on primary topic relevance
+    const relevantQueries = filterQueriesByTopic(allQueries, primaryTopic);
 
     // Analyze target content
     const targetMatches = await analyzeContentSimilarity(targetContent.content, allQueries);
@@ -405,7 +524,7 @@ export async function performContentAnalysis(
 
     // Generate insights
     const radarData = generateRadarData(targetCategoryScores, competitorResults);
-    const coverageGaps = identifyCoverageGaps(targetCategoryScores, competitorResults, targetMatches);
+    const coverageGaps = identifyCoverageGaps(targetCategoryScores, competitorResults, targetMatches, primaryTopic);
 
     const processingTime = Date.now() - startTime;
 
@@ -424,6 +543,12 @@ export async function performContentAnalysis(
       queryFanOut: [],
       optimizationRecommendations: [],
       coverageScore: 0,
+      // Primary topic detection fields
+      primaryTopic,
+      topicConfidence: primaryTopic.confidence,
+      entityType: primaryTopic.entityType,
+      subEntities: primaryTopic.subEntities || [],
+      combinedTopic: primaryTopic.combinedTopic,
     };
   } catch (error) {
     console.error('Error performing content analysis:', error);
@@ -433,6 +558,50 @@ export async function performContentAnalysis(
       500
     );
   }
+}
+
+/**
+ * Filter queries based on primary topic relevance
+ */
+function filterQueriesByTopic(queries: string[], primaryTopic: any): string[] {
+  if (!primaryTopic || !primaryTopic.entity) {
+    return queries;
+  }
+
+  const primaryEntity = primaryTopic.entity.toLowerCase();
+  const subEntities = primaryTopic.subEntities?.map((e: string) => e.toLowerCase()) || [];
+  
+  // Score queries based on relevance to primary topic
+  const scoredQueries = queries.map(query => {
+    const lowerQuery = query.toLowerCase();
+    let score = 0;
+    
+    // Check for exact matches
+    if (lowerQuery.includes(primaryEntity)) {
+      score += 10;
+    }
+    
+    // Check for sub-entity matches
+    subEntities.forEach((entity: string) => {
+      if (lowerQuery.includes(entity)) {
+        score += 5;
+      }
+    });
+    
+    // Check for word overlap
+    const primaryWords = primaryEntity.split(' ');
+    const queryWords = lowerQuery.split(' ');
+    const overlap = primaryWords.filter((word: string) => queryWords.includes(word));
+    score += overlap.length * 2;
+    
+    return { query, score };
+  });
+  
+  // Sort by score and return top queries
+  return scoredQueries
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.query)
+    .slice(0, Math.max(queries.length, 15)); // Keep at least 15 queries
 }
 
 /**

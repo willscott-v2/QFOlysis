@@ -1,4 +1,5 @@
 import { type ScrapedContent, ScrapingError } from './types';
+import { type ContentElements } from './topic-detector';
 
 // ============================================================================
 // Scraping Configuration
@@ -26,6 +27,12 @@ interface FirecrawlResponse {
   error?: string;
 }
 
+// Extended ScrapedContent interface with content elements
+export interface ScrapedContentWithElements extends ScrapedContent {
+  contentElements: ContentElements;
+  primaryTopic?: any; // Will be populated by topic detector
+}
+
 // ============================================================================
 // Main Scraping Functions
 // ============================================================================
@@ -33,7 +40,7 @@ interface FirecrawlResponse {
 /**
  * Extract content from a URL using Firecrawl API (primary method)
  */
-async function scrapeWithFirecrawl(url: string): Promise<ScrapedContent> {
+async function scrapeWithFirecrawl(url: string): Promise<ScrapedContentWithElements> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   
   if (!apiKey) {
@@ -69,6 +76,10 @@ async function scrapeWithFirecrawl(url: string): Promise<ScrapedContent> {
 
     const content = data.data.markdown || data.data.content || '';
     const wordCount = content.split(/\s+/).length;
+    const html = data.data.html || '';
+
+    // Extract structured content elements
+    const contentElements = extractContentElements(html, url);
 
     return {
       url,
@@ -82,6 +93,7 @@ async function scrapeWithFirecrawl(url: string): Promise<ScrapedContent> {
         keywords: extractKeywords(content),
       },
       extractedAt: new Date().toISOString(),
+      contentElements,
     };
   } catch (error) {
     console.error('Firecrawl scraping failed:', error);
@@ -95,7 +107,7 @@ async function scrapeWithFirecrawl(url: string): Promise<ScrapedContent> {
 /**
  * Fallback content extraction using simple fetch and parsing
  */
-async function scrapeWithFallback(url: string): Promise<ScrapedContent> {
+async function scrapeWithFallback(url: string): Promise<ScrapedContentWithElements> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
@@ -122,6 +134,9 @@ async function scrapeWithFallback(url: string): Promise<ScrapedContent> {
     const title = extractTitleFromHTML(html);
     const wordCount = content.split(/\s+/).length;
 
+    // Extract structured content elements
+    const contentElements = extractContentElements(html, url);
+
     return {
       url,
       title: title || extractTitleFromContent(content),
@@ -132,6 +147,7 @@ async function scrapeWithFallback(url: string): Promise<ScrapedContent> {
         keywords: extractKeywords(content),
       },
       extractedAt: new Date().toISOString(),
+      contentElements,
     };
   } catch (error) {
     console.error('Fallback scraping failed:', error);
@@ -145,7 +161,7 @@ async function scrapeWithFallback(url: string): Promise<ScrapedContent> {
 /**
  * Main scraping function with retry logic
  */
-export async function scrapeContent(url: string): Promise<ScrapedContent> {
+export async function scrapeContent(url: string): Promise<ScrapedContentWithElements> {
   if (!isValidUrl(url)) {
     throw new ScrapingError('Invalid URL format', url);
   }
@@ -410,4 +426,39 @@ export function validateContent(content: ScrapedContent): boolean {
   }
   
   return true;
+}
+
+/**
+ * Extract structured content elements from HTML
+ */
+function extractContentElements(html: string, url: string): ContentElements {
+  // Extract title
+  const title = extractTitleFromHTML(html);
+  
+  // Extract meta description
+  const metaDescription = extractMetaDescription(html);
+  
+  // Extract headings (H1-H3)
+  const headings: { level: number; text: string }[] = [];
+  const headingRegex = /<h([1-3])[^>]*>(.*?)<\/h\1>/gi;
+  let match;
+  
+  while ((match = headingRegex.exec(html)) !== null) {
+    const level = parseInt(match[1]);
+    const text = extractTextFromHTML(match[2]).trim();
+    if (text.length > 0) {
+      headings.push({ level, text });
+    }
+  }
+  
+  // Extract body text
+  const bodyText = extractTextFromHTML(html);
+  
+  return {
+    title,
+    metaDescription,
+    headings,
+    url,
+    bodyText
+  };
 } 

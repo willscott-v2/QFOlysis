@@ -55,12 +55,59 @@ export function ResultsDisplay({
     }
   };
 
+  // Log debug info from primary topic extraction if available
+  if (result.primaryTopic && result.primaryTopic.debug) {
+    // eslint-disable-next-line no-console
+    console.log('[QFOlysis PrimaryTopic Debug]', result.primaryTopic.debug);
+  }
+
+  // Log chunk-based analysis info if available
+  if (result.competitorResults && result.competitorResults.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('[QFOlysis Chunk Analysis]', {
+      targetUrl: result.targetUrl,
+      competitorCount: result.competitorResults.length,
+      // Log sample chunk data from first competitor if available
+      sampleChunkData: result.competitorResults[0]?.topQueries?.slice(0, 3).map(q => ({
+        query: q.query,
+        similarity: q.similarity,
+        bestChunkIndex: q.bestChunkIndex,
+        topChunkMatches: q.allChunkSimilarities?.slice(0, 2)
+      }))
+    });
+  }
+
   return (
     <div className="space-y-6">
+      {/* Primary Topic Section */}
+      {result.primaryTopic && (
+        <div className="bg-blue-50 p-6 rounded-lg mb-6">
+          <h3 className="text-lg font-semibold text-blue-900 mb-2">Primary Topic Detected</h3>
+          <div className="flex items-center gap-4">
+            <span className="text-2xl font-bold text-blue-700">{result.primaryTopic.entity}</span>
+            <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+              {result.primaryTopic.entityType}
+            </span>
+            <span className="text-sm text-blue-600">
+              Confidence: {Math.round(result.primaryTopic.confidence * 100)}%
+            </span>
+          </div>
+          {result.primaryTopic.combinedTopic && (
+            <p className="text-blue-700 mt-2">Combined Topic: {result.primaryTopic.combinedTopic}</p>
+          )}
+          {result.primaryTopic.subEntities && result.primaryTopic.subEntities.length > 0 && (
+            <div className="mt-3">
+              <span className="text-sm text-blue-600">Related Entities: </span>
+              {result.primaryTopic.subEntities.map(entity => (
+                <span key={entity} className="inline-block bg-blue-200 text-blue-800 px-2 py-1 rounded text-xs mr-2">
+                  {entity}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-
-    
-    
       {/* Header Section */}
       <Card>
         <CardHeader>
@@ -239,35 +286,65 @@ export function ResultsDisplay({
         <CoverageGaps gaps={coverageGaps} />
       )}
 
-      {/* Recommendations */}
-      {recommendations.length > 0 && (
+      {/* Unified Optimization Recommendations Section */}
+      {((recommendations && recommendations.length > 0) || (result.optimizationRecommendations && result.optimizationRecommendations.length > 0)) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
-              💡 Key Recommendations
+              💡 Optimization Recommendations
             </CardTitle>
             <CardDescription>
-              AI-generated insights to improve your content coverage
+              AI-generated, actionable insights to improve your content coverage and performance
             </CardDescription>
           </CardHeader>
-          
           <CardContent>
-            <div className="space-y-3">
-              {recommendations.map((recommendation, index) => (
-                <div
-                  key={index}
-                  className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-l-4 border-blue-500"
-                >
-                  <div className="flex items-start">
-                    <span className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">
-                      {index + 1}
-                    </span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300">
-                      {recommendation}
-                    </p>
+            <div className="space-y-4">
+              {[
+                ...(recommendations || []).map((rec, i) => ({
+                  type: 'string' as const,
+                  value: rec,
+                  key: `string-${i}`
+                })),
+                ...((result.optimizationRecommendations || []).map((rec, i) => ({
+                  type: 'structured' as const,
+                  value: rec,
+                  key: `structured-${i}`
+                })) || [])
+              ].map((item, index) => {
+                // Unified rendering for both types
+                const isStructured = item.type === 'structured';
+                const badge = isStructured ? item.value.category : 'General';
+                const recommendation = isStructured ? item.value.recommendation : item.value;
+                const why = isStructured ? item.value.why : undefined;
+                const impact = isStructured ? item.value.impact : undefined;
+                const priority = isStructured ? item.value.priority : undefined;
+                return (
+                  <div key={item.key} className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-l-4 border-blue-500 flex flex-col">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-medium mr-3">
+                        {index + 1}
+                      </span>
+                      <Badge variant="outline">{badge}</Badge>
+                    </div>
+                    <h4 className="font-medium mb-1">{recommendation}</h4>
+                    {why && <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">Why: {why}</p>}
+                    {impact && <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{impact}</p>}
+                    {priority && (
+                      <div className="flex items-center space-x-2 mt-1">
+                        <Badge 
+                          variant={
+                            priority === 'high' ? 'destructive' : 
+                            priority === 'medium' ? 'default' : 'secondary'
+                          }
+                          className="text-xs"
+                        >
+                          {priority} priority
+                        </Badge>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -334,6 +411,18 @@ export function ResultsDisplay({
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {query.category}
                   </p>
+                  {/* Chunk-level similarity info */}
+                  {typeof query.bestChunkIndex === 'number' && query.bestChunkIndex >= 0 && (
+                    <div className="text-gray-400 mt-1 flex items-center gap-2 text-xs">
+                      <span>Chunk #{query.bestChunkIndex + 1}</span>
+                      {typeof query.similarity === 'number' && (
+                        <span>Similarity: {Math.round(query.similarity * 100)}%</span>
+                      )}
+                      {query.context && (
+                        <span className="italic truncate max-w-xs">{query.context.slice(0, 60)}...</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -379,44 +468,6 @@ export function ResultsDisplay({
                   <div className="flex items-center space-x-2 mt-2">
                     <Badge variant="outline" className="text-xs">{query.category}</Badge>
                     <Badge variant="outline" className="text-xs">{query.priority}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Optimization Recommendations */}
-      {result.optimizationRecommendations && result.optimizationRecommendations.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>💡 Optimization Recommendations</CardTitle>
-            <CardDescription>
-              Specific actions to improve your content coverage and performance
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {result.optimizationRecommendations.map((rec, index) => (
-                <div key={index} className="border-l-4 border-blue-500 pl-4 py-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">{rec.recommendation}</h4>
-                    <Badge variant="outline">{rec.category}</Badge>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                    {rec.impact}
-                  </p>
-                  <div className="flex items-center space-x-2 mt-2">
-                    <Badge 
-                      variant={
-                        rec.priority === 'high' ? 'destructive' : 
-                        rec.priority === 'medium' ? 'default' : 'secondary'
-                      }
-                      className="text-xs"
-                    >
-                      {rec.priority} priority
-                    </Badge>
                   </div>
                 </div>
               ))}

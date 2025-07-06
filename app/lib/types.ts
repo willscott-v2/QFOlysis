@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { type PrimaryTopic } from './topic-detector';
 
 // Import entity and query types
 export interface ExtractedEntity {
@@ -15,6 +16,9 @@ export interface FanOutQuery {
   intent: 'informational' | 'navigational' | 'transactional' | 'comparison';
   priority: 'high' | 'medium' | 'low';
   category: string;
+  bestChunkIndex?: number;
+  similarity?: number;
+  context?: string;
 }
 
 export interface QueryFanOut {
@@ -29,6 +33,7 @@ export interface QueryFanOut {
 export interface OptimizationRecommendation {
   category: string;
   recommendation: string;
+  why?: string;
   priority: 'high' | 'medium' | 'low';
   impact: string;
 }
@@ -100,7 +105,9 @@ export interface QueryMatch {
   similarity: number;
   category: string;
   matched: boolean;
-  context?: string;
+  context: string;
+  bestChunkIndex?: number; // Index of the best matching chunk
+  allChunkSimilarities?: Array<{ chunkIndex: number; similarity: number }>; // Top chunk matches
 }
 
 export interface AnalysisResult {
@@ -129,6 +136,12 @@ export interface AnalysisResult {
   queryFanOut: QueryFanOut[];
   optimizationRecommendations: OptimizationRecommendation[];
   coverageScore: number; // 0-100 percentage
+  // Primary topic detection fields
+  primaryTopic: PrimaryTopic;
+  topicConfidence: number;
+  entityType: string;
+  subEntities: string[];
+  combinedTopic?: string;
   apiUsage?: {
     openaiTokens: number;
     serpapiRequests: number;
@@ -149,6 +162,7 @@ export interface CoverageGap {
   competitorUrls: string[];
   priority: 'high' | 'medium' | 'low';
   recommendation: string;
+  topicRelevance: number;
 }
 
 // ============================================================================
